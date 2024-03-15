@@ -1,7 +1,10 @@
 +++
 title = 'TLS Demystified'
 date = 2024-02-29T19:40:22+01:00
+summary = 'Understand how the mTLS handshake works and where it can fail'
 draft = false
+[params]
+  image = 'spy-vs-spy.webp'
 +++
 ## Overview
 TLS (for Transport Layer Security) is the successor of the now insecure SSL protocol. It sits on top of TCP to provide secrecy (encryption) and prevent tampering (signature) of identities and data. It uses asymmetric ciphering based on key/certificate pairs to exchange symmetric session keys, no manual exchange of initial secrets is required.
@@ -155,11 +158,10 @@ curl https://tls-server.local:8443 --cacert ./rootCA.crt --key ./client.key --ce
 ```
 You should get an HTTP 200 status and a bunch of info.
 Now that it works, let's make it fail! For that we have to dive into the TLS handshake.
-# TLS handshake
-I'm not going to explain every technical detail of the TLS protocol but focus on what can go wrong between the client and the server.
+## TLS handshake![Simplified mTLS handshake](/img/handshake.png)
+ I'm not going to explain every technical detail of the TLS protocol but focus on what can go wrong between the client and the server.
 Before the TLS handshake, there is a TCP handshake of course. So if you can't resolve the host name (DNS issue), can't route (gateway issue) or timeout (firewall issue), the problem is in the network configuration and not in the TLS one.
-
-## Client Hello
+### Client Hello
 The client sends its list of supported TLS versions and ciphers. The server checks if he supports one version and one cipher is this list (selecting the strongest cipher available on both sides). If the server can't find a common ground of TLS version & cipher, it will send an error and close the connection.
 For example if we try to use TLS 1.2 against our TLS 1.3 only server by using:
 ```
@@ -186,7 +188,7 @@ will return the generic error:
 curl: (35) error:0A000410:SSL routines::sslv3 alert handshake failure
 ```
 If the server and client share a common tls version and cipher, then the server will send its hello.
-## Server Hello, certificates, acceptable CAs
+### Server Hello, certificates, acceptable CAs
 The server sends the selected TLS version and cipher, followed by :
 - its certificate chain
 - a request for a client certificate signed by a list of acceptable CAs
@@ -216,7 +218,7 @@ curl https://127.0.0.1:8443 --cacert ./rootCA.crt -v
 The client will by default check the domain name with the SAN or Subject alternative names declared in the server certificate. We only provided subjectAltName=DNS:tls-server.local when we created our server certificate, so it's not valid for 127.0.0.1.
 We can ignore those errors using -k, but we shouldn't. These checks are here to ensure that you are indeed talking to the server you expect, and not someone else (man in the middle, someone intercepts your network traffic and tries to impersonate the target server, but this persone won't have the proper certificate for the server).
 
-## Client certificate
+### Client certificate
 The next step is for your client to select a certificate matching what the server requested. The server should send a list of CA, which you can see using openssl_client:
 ```
 openssl s_client -connect tls-server.local:8443
@@ -243,8 +245,8 @@ Unacceptable cert:
 Note that some clients (eg. java) will fail on the client side if they don't find a valid client certificate in their keystore, some will try anyway to send whatever you specify or nothing at all.
 As soon as you start receiving some HTTP response from the server, it means your handshake is successful. Congratulations!
 
-# TLDR - Troubleshooting
-| Error | usual source |
+## TLDR - Troubleshooting
+| Error | Usual source |
 | ----- | ------------ |
 | The client get disconnected right after the client hello | the server couldn't find a compatible TLS version/cipher in the list provided by the client. | 
 | The client closes the connection right after the server hello, complaining about an unknown CA or a self-signed certificate | your trust store doens't contain the root CA of the server |
@@ -252,5 +254,5 @@ As soon as you start receiving some HTTP response from the server, it means your
 | The client aborts the handshake after the server hello | the client is strict and fails to find a valid client certificate to send to the server. Check that your keystore contains your key, your trust store your certificate, and depending on the language you may need to trust the CA of the certificate too. |
 | The server closes the connection requesting a client certificate | you didn't send a client certificate. check that you have valid a key/certificate pair in your trust store/key store, matching the server Acceptable CAs field. |
 | The server closes the connection complaining that the CA is unknown | the client certificate you presented does not match the expected CA. Check your certificate CA against the list of Acceptable CAs provided by the server |
-
+{.table .table-striped}
 
